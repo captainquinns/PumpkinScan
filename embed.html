@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Pumpkin Splat Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0a0a0a; overflow: hidden; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  #viewer-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+  #ui {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 18px 24px 22px;
+    background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0));
+    pointer-events: none;
+  }
+  #ui * { pointer-events: auto; }
+  #slider { width: min(560px, 90vw); height: 6px; }
+  #tick-row {
+    display: flex;
+    justify-content: space-between;
+    width: min(560px, 90vw);
+  }
+  .tick {
+    color: #eee; font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase;
+    opacity: 0.75; user-select: none; white-space: nowrap;
+  }
+  #status {
+    position: absolute; top: 14px; left: 18px; z-index: 10;
+    color: #ccc; font-size: 12px; opacity: 0.8; user-select: none;
+  }
+  #loading {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #eee; font-size: 15px; z-index: 20; text-align: center;
+  }
+</style>
+</head>
+<body>
+  <div id="viewer-container"></div>
+  <div id="loading">Loading splats&hellip;</div>
+  <div id="status"></div>
+  <div id="ui">
+    <input id="slider" type="range" min="0" max="1000" value="0" />
+    <div id="tick-row"></div>
+  </div>
+
+<script>
+window.__INLINE_ALIGN = {"bboxDiag":33.03314897792964,"referenceIndex":5,"stages":[{"name":"uncarved","plyPath":"1. Uncarved 10690.ply","ksplatPath":"1. Uncarved 10690.ksplat","position":[0.147326,0.146116,-0.081264],"rotation":[0.0046631,-0.0069374,-0.00129994,0.99996422],"scale":[1.008794,1.008794,1.008794],"residualMeanDist":0.10637516660378356},{"name":"hole","plyPath":"2. Hole.ply","ksplatPath":"2. Hole.ksplat","position":[0.043199,0.081491,0.123346],"rotation":[0.00753722,-0.01239702,0.0042763,0.9998856],"scale":[1.013994,1.013994,1.013994],"residualMeanDist":0.24052822621032416},{"name":"gutted","plyPath":"4. Gutted 13755.ply","ksplatPath":"4. Gutted 13755.ksplat","position":[-0.066166,-0.121073,0.12201],"rotation":[-0.00022273,-0.02711296,0.0106114,0.99957603],"scale":[1.022709,1.022709,1.022709],"residualMeanDist":0.144788989018832},{"name":"eyes","plyPath":"5. Eyes 7330.ply","ksplatPath":"5. Eyes 7330.ksplat","position":[0.101659,0.19741,0.297767],"rotation":[0.01486336,-0.01698051,0.01664374,0.99960679],"scale":[1.013149,1.013149,1.013149],"residualMeanDist":0.11049645101054703},{"name":"mouth","plyPath":"6. Mouth 10505.ply","ksplatPath":"6. Mouth 10505.ksplat","position":[0.369713,0.185834,0.5797],"rotation":[0.02207747,-0.03416144,-0.01425369,0.99907078],"scale":[1.06244,1.06244,1.06244],"residualMeanDist":0.12275117270541681},{"name":"carved","plyPath":"7. Lit up 10745.ply","ksplatPath":"7. Lit up 10745.ksplat","position":[-0.010063,-0.005282,0.092302],"rotation":[0.01048186,-0.00483967,-0.00022296,0.99993333],"scale":[1.014262,1.014262,1.014262],"residualMeanDist":0}],"overlays":[{"name":"top","ksplatPath":"3. Top 9065.ksplat","withStages":["hole"],"position":[0.001372,0.057042,-0.050448],"rotation":[0,0,0,1],"scale":[1,1,1]}]};
+window.__INLINE_CAMERA = {"keyframes":[{"stage":"uncarved","position":[11.0816,8.4881,36.9624],"target":[-0.0248,1.2778,-0.4003]},{"stage":"hole","position":[2.1174,33.4753,25.4],"target":[0.2703,4.2876,-4.3611]},{"stage":"gutted","position":[-9.1028,32.0884,4.8274],"target":[1.6186,1.8672,1.0627]},{"stage":"eyes","position":[-10.9847,5.9288,13.3824],"target":[1.2352,1.7648,1.6471]},{"stage":"mouth","position":[-0.7511,1.8732,19.2669],"target":[-0.5227,1.0765,1.8401]},{"stage":"carved","position":[-0.1317,3.519,29.4588],"target":[0.4396,2.3757,1.8064]}]};
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
+import * as THREE from "three";
+
+const statusEl = document.getElementById("status");
+const loadingEl = document.getElementById("loading");
+const tickRowEl = document.getElementById("tick-row");
+const slider = document.getElementById("slider");
+
+function setStatus(msg) {
+  statusEl.textContent = msg;
+}
+
+// Quaternion helpers (xyzw) for applying a fixed world-orientation correction
+// on top of the ICP alignment, so we don't have to recompute align.json to fix
+// the model's up-axis.
+function quatMultiply(a, b) {
+  const [ax, ay, az, aw] = a, [bx, by, bz, bw] = b;
+  return [
+    aw * bx + ax * bw + ay * bz - az * by,
+    aw * by - ax * bz + ay * bw + az * bx,
+    aw * bz + ax * by - ay * bx + az * bw,
+    aw * bw - ax * bx - ay * by - az * bz,
+  ];
+}
+function rotateVecByQuat([x, y, z, w], v) {
+  const qv = [x, y, z];
+  const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const uv = cross(qv, v);
+  const uuv = cross(qv, uv);
+  return v.map((vi, i) => vi + 2 * w * uv[i] + 2 * uuv[i]);
+}
+
+// The raw scans came in stem-down, with the carved face off to one side.
+// Z_FLIP_180 rights the pumpkin (stem up, keeps whatever already faced the
+// camera still facing it). YAW_CW90_Y then spins it like a turntable, 90 deg
+// clockwise as seen from above, so the carved face ends up toward the camera.
+const Z_FLIP_180 = [0, 0, 1, 0];
+const YAW_CW90_Y = [0, -Math.SQRT1_2, 0, Math.SQRT1_2];
+const WORLD_CORRECTION = quatMultiply(YAW_CW90_Y, Z_FLIP_180);
+
+function worldTransform(rotation, position) {
+  return {
+    rotation: quatMultiply(WORLD_CORRECTION, rotation),
+    position: rotateVecByQuat(WORLD_CORRECTION, position),
+  };
+}
+
+const PARAMS = new URLSearchParams(location.search);
+const DEBUG = PARAMS.has("debug");
+// ?align=1 opens the manual point-pair alignment tool over every pair.
+// ?align=<stage> scopes it to that one stage, leaving the rest untouched.
+const ALIGN_MODE = PARAMS.has("align");
+const ALIGN_STAGE = ["", "1", "true"].includes(PARAMS.get("align") || "")
+  ? null : PARAMS.get("align");
+// ?camera=1 opens the keyframe tool for the camera move.
+const CAMERA_MODE = PARAMS.has("camera");
+
+// Where the .ksplat files are served from. These are tens of megabytes, so
+// they live in their own repo rather than next to this page. raw.githubusercontent
+// sends Access-Control-Allow-Origin, so the viewer can be hosted anywhere;
+// jsDelivr would be the better CDN but refuses files over 20MB and the lit
+// scan is 21.5MB. Set this to "" when the page is served alongside the files.
+const MODEL_BASE = "https://raw.githubusercontent.com/captainquinns/PumpkinScan/main/";
+
+// How many slider steps are allotted to each adjacent pair of stages.
+const STEPS_PER_SEGMENT = 1000;
+
+// Fraction of each segment spent actually crossfading. The rest is a plateau
+// at each end where one stage is fully opaque and its neighbours are fully
+// off — overlapping splat clouds muddy the carved openings, so every stage
+// needs a region of the slider where it renders completely alone.
+const CROSSFADE_BAND = 0.5;
+
+// ---------------------------------------------------------------------------
+// Camera path
+//
+// One keyframe per stage. Between them the camera is interpolated around its
+// target in spherical terms -- azimuth, elevation, distance -- so it arcs
+// around the pumpkin instead of cutting a straight chord through it. A
+// Catmull-Rom spline runs through those keyframes so the path curves through
+// each one rather than cornering at it.
+// ---------------------------------------------------------------------------
+
+// How much the camera slows as it passes a keyframe. 0 is a constant glide,
+// 1 comes to a dead stop on each one; in between it eases down to (1 - this)
+// of normal speed and keeps drifting.
+const CAMERA_EASE = 0.85;
+
+function easeSegment(t) {
+  const smooth = t * t * (3 - 2 * t);
+  return (1 - CAMERA_EASE) * t + CAMERA_EASE * smooth;
+}
+
+function catmullRom(p0, p1, p2, p3, t) {
+  const t2 = t * t, t3 = t2 * t;
+  return 0.5 * ((2 * p1) +
+                (-p0 + p2) * t +
+                (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+                (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+}
+
+function toSpherical(offset) {
+  const radius = offset.length();
+  return {
+    radius,
+    azimuth: Math.atan2(offset.x, offset.z),
+    polar: Math.acos(Math.min(Math.max(offset.y / (radius || 1), -1), 1)),
+  };
+}
+
+function fromSpherical({ radius, azimuth, polar }) {
+  const s = Math.sin(polar);
+  return new THREE.Vector3(
+    radius * s * Math.sin(azimuth),
+    radius * Math.cos(polar),
+    radius * s * Math.cos(azimuth));
+}
+
+// Shortest way round, so a move from -170 to +170 degrees takes the 20 degree
+// path rather than sweeping 340 the other way.
+function lerpAngle(a, b, t) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+function makeCameraPath(keyframes, stages) {
+  const frames = keyframes
+    .map(k => ({
+      index: stages.findIndex(s => s.name === k.stage),
+      position: new THREE.Vector3().fromArray(k.position),
+      target: new THREE.Vector3().fromArray(k.target),
+    }))
+    .filter(k => k.index !== -1)
+    .sort((a, b) => a.index - b.index);
+
+  if (!frames.length) return null;
+
+  // Spline control points. Azimuth is unwrapped into a continuous run first,
+  // otherwise it would snap backwards every time the path crosses +/-180.
+  const keys = frames.map(f => {
+    const s = toSpherical(f.position.clone().sub(f.target));
+    return { index: f.index, target: f.target, ...s };
+  });
+  for (let i = 1; i < keys.length; i++) {
+    keys[i].azimuth = lerpAngle(keys[i - 1].azimuth, keys[i].azimuth, 1);
+  }
+
+  const at = i => keys[Math.min(Math.max(i, 0), keys.length - 1)];
+
+  return function cameraAt(v) {
+    if (keys.length === 1 || v <= keys[0].index) {
+      return { position: frames[0].position, target: frames[0].target };
+    }
+    const lastKey = keys[keys.length - 1];
+    if (v >= lastKey.index) {
+      const f = frames[frames.length - 1];
+      return { position: f.position, target: f.target };
+    }
+
+    let i = 0;
+    while (i < keys.length - 2 && keys[i + 1].index <= v) i++;
+    const k1 = at(i), k2 = at(i + 1);
+    const k0 = at(i - 1), k3 = at(i + 2);
+    const t = (v - k1.index) / (k2.index - k1.index);
+
+    const target = new THREE.Vector3(
+      catmullRom(k0.target.x, k1.target.x, k2.target.x, k3.target.x, t),
+      catmullRom(k0.target.y, k1.target.y, k2.target.y, k3.target.y, t),
+      catmullRom(k0.target.z, k1.target.z, k2.target.z, k3.target.z, t));
+
+    const offset = fromSpherical({
+      radius: catmullRom(k0.radius, k1.radius, k2.radius, k3.radius, t),
+      azimuth: catmullRom(k0.azimuth, k1.azimuth, k2.azimuth, k3.azimuth, t),
+      polar: catmullRom(k0.polar, k1.polar, k2.polar, k3.polar, t),
+    });
+    return { position: target.clone().add(offset), target };
+  };
+}
+
+async function loadKeyframes() {
+  if (window.__INLINE_CAMERA) return window.__INLINE_CAMERA.keyframes || [];
+  try {
+    const res = await fetch("./camera.json", { cache: "no-store" });
+    if (!res.ok) return [];
+    return (await res.json()).keyframes || [];
+  } catch {
+    return [];
+  }
+}
+
+async function main() {
+  // build_embed.py inlines these so the published page needs nothing beside it.
+  // No-store otherwise: the server sends no cache headers, so browsers
+  // heuristically cache this and keep serving a stale alignment after a rewrite.
+  const align = window.__INLINE_ALIGN ||
+    await fetch("./align.json", { cache: "no-store" }).then(r => r.json());
+  const stages = align.stages;
+
+  if (DEBUG) {
+    const residuals = stages.map(s => s.residualMeanDist.toFixed(4)).join(", ");
+    setStatus(`bbox diag ${align.bboxDiag.toFixed(2)} — residuals: ${residuals}`);
+  }
+
+  const viewer = new GaussianSplats3D.Viewer({
+    cameraUp: [0, 1, 0],
+    initialCameraPosition: [0, 0, align.bboxDiag * 1.2],
+    initialCameraLookAt: [0, 0, 0],
+    rootElement: document.getElementById("viewer-container"),
+    enableOptionalEffects: true,
+    sharedMemoryForWorkers: false,
+    sphericalHarmonicsDegree: 2,
+    // Scene transforms are baked into the splat data unless the scene is
+    // dynamic, so the alignment tool needs this to move a stage live.
+    dynamicScene: ALIGN_MODE,
+    // Files load complete rather than progressively, so the default reveal
+    // animation has nothing to reveal -- it just leaves the scene stuck
+    // half-faded (a blurry blob) until the camera is moved.
+    sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
+  });
+
+  // Overlays (the severed lid) are extra splats that ride along with named
+  // stages instead of taking their own slider position. They load after the
+  // stages, so overlay k is scene stages.length + k.
+  const overlays = align.overlays || [];
+
+  const toSceneConfig = (entry, startsVisible) => {
+    const xf = worldTransform(entry.rotation, entry.position);
+    return {
+      path: MODEL_BASE ? MODEL_BASE + encodeURIComponent(entry.ksplatPath) : `./${entry.ksplatPath}`,
+      position: xf.position,
+      rotation: xf.rotation,
+      scale: entry.scale,
+      opacity: startsVisible ? 1 : 0,
+      visible: true,
+      splatAlphaRemovalThreshold: 1,
+    };
+  };
+
+  const sceneConfigs = [
+    ...stages.map((stage, i) => toSceneConfig(stage, i === 0)),
+    ...overlays.map(overlay => toSceneConfig(overlay, false)),
+  ];
+
+  await viewer.addSplatScenes(sceneConfigs, true);
+
+  loadingEl.style.display = "none";
+  viewer.start();
+  window.__viewer = viewer;
+
+  // Slider spans [0, (stages.length - 1) * STEPS_PER_SEGMENT], one segment per
+  // adjacent stage pair, crossfading opacity between the two stages that
+  // straddle the current position.
+  slider.max = String((stages.length - 1) * STEPS_PER_SEGMENT);
+
+  tickRowEl.innerHTML = "";
+  stages.forEach(stage => {
+    const el = document.createElement("span");
+    el.className = "tick";
+    el.textContent = stage.name;
+    tickRowEl.appendChild(el);
+  });
+
+  const lastSegment = Math.max(stages.length - 2, 0);
+  const plateau = (1 - CROSSFADE_BAND) / 2;
+
+  const setSceneOpacity = (index, opacity) => {
+    const scene = viewer.splatMesh.getScene(index);
+    scene.opacity = opacity;
+    scene.visible = opacity > 0;
+  };
+
+  const keyframes = await loadKeyframes();
+  let cameraPath = makeCameraPath(keyframes, stages);
+
+  const applyMix = () => {
+    const v = Number(slider.value) / STEPS_PER_SEGMENT;
+    const i = Math.min(Math.floor(v), lastSegment);
+    const t = v - i;
+    const frac = Math.min(Math.max((t - plateau) / CROSSFADE_BAND, 0), 1);
+
+    // The camera runs on the raw slider position, not the crossfade's plateau:
+    // sharing that schedule parked it for half of every segment. Easing each
+    // segment instead keeps it drifting the whole way, just much slower as it
+    // passes through a keyframe.
+    if (cameraPath) {
+      const shot = cameraPath(i + easeSegment(t));
+      viewer.camera.position.copy(shot.position);
+      if (viewer.controls) viewer.controls.target.copy(shot.target);
+      viewer.camera.lookAt(shot.target);
+      viewer.forceRenderNextFrame();
+    }
+
+    const stageOpacity = stages.map((_, s) => {
+      if (s === i) return 1 - frac;
+      if (s === i + 1) return frac;
+      return 0;
+    });
+
+    stageOpacity.forEach((opacity, s) => setSceneOpacity(s, opacity));
+
+    // Overlays are driven by slider position rather than by their stage's
+    // opacity. The severed lid must not start appearing while the closed
+    // pumpkin is still fading out, or you see two lids at once. Its fade-in
+    // therefore begins only once the previous stage has gone (exactly where
+    // that crossfade ends), holds across the stage, then leaves with it.
+    overlays.forEach((overlay, k) => {
+      const indexes = overlay.withStages
+        .map(name => stages.findIndex(stage => stage.name === name))
+        .filter(s => s !== -1);
+      if (!indexes.length) return;
+
+      const first = Math.min(...indexes);
+      const last = Math.max(...indexes);
+      const fadeInStart = first - plateau;
+      const holdEnd = last + plateau;
+      const fadeOutEnd = holdEnd + CROSSFADE_BAND;
+
+      let opacity;
+      if (v <= fadeInStart || v >= fadeOutEnd) opacity = 0;
+      else if (v < first) opacity = (v - fadeInStart) / plateau;
+      else if (v <= holdEnd) opacity = 1;
+      else opacity = 1 - (v - holdEnd) / CROSSFADE_BAND;
+
+      setSceneOpacity(stages.length + k, opacity);
+    });
+  };
+  slider.addEventListener("input", applyMix);
+  applyMix();
+
+  if (ALIGN_MODE) setupAlignTool(viewer, align);
+  if (CAMERA_MODE) {
+    setupCameraTool(viewer, stages, keyframes, path => { cameraPath = path; }, applyMix);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Camera keyframe tool (?camera=1)
+//
+// Orbit to frame a stage, store that view against it, repeat. Preview scrubs
+// the real slider so the move is judged exactly as it will play.
+// ---------------------------------------------------------------------------
+
+function setupCameraTool(viewer, stages, keyframes, setPath, applyMix) {
+  const mesh = viewer.splatMesh;
+  const frames = new Map(keyframes.map(k => [k.stage, k]));
+  let current = 0;
+  let preview = false;
+
+  const bar = document.createElement("div");
+  bar.id = "cam-bar";
+  document.body.appendChild(bar);
+
+  const style = document.createElement("style");
+  style.textContent = `
+    #cam-bar { position:absolute; top:0; left:0; right:0; z-index:30;
+      background:rgba(12,12,14,0.93); color:#f2f2f2; font-size:14px;
+      padding:10px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    #cam-bar .step { opacity:0.6; font-size:12px; letter-spacing:0.08em;
+      text-transform:uppercase; white-space:nowrap; }
+    #cam-bar .hint { opacity:0.5; font-size:12px; }
+    #cam-bar .spacer { flex:1; }
+    #cam-bar button { font:inherit; font-size:13px; background:#2b2b31; color:#eee;
+      border:1px solid #45454d; border-radius:4px; padding:6px 11px; cursor:pointer; }
+    #cam-bar button:hover:not(:disabled) { background:#3a3a42; }
+    #cam-bar button:disabled { opacity:0.35; cursor:default; }
+    #cam-bar button.active { background:#2f6fd0; border-color:#6ba0ee; }
+    #cam-bar button.primary { background:#2f6fd0; border-color:#3f80e0; }
+    #cam-out { position:absolute; top:48px; left:0; right:0; z-index:30; height:140px;
+      background:#000; color:#b6e3b6; border:0; border-top:1px solid #333; display:none;
+      font-family:ui-monospace,Consolas,monospace; font-size:10px; padding:8px; }
+  `;
+  document.head.appendChild(style);
+
+  const out = document.createElement("textarea");
+  out.id = "cam-out";
+  out.readOnly = true;
+  document.body.appendChild(out);
+
+  function showStage(index) {
+    stages.forEach((_, s) => {
+      const scene = mesh.getScene(s);
+      const on = s === index;
+      scene.opacity = on ? 1 : 0;
+      scene.visible = on;
+    });
+    // Overlays stay out of the way while framing.
+    for (let s = stages.length; s < mesh.scenes.length; s++) {
+      mesh.getScene(s).opacity = 0;
+      mesh.getScene(s).visible = false;
+    }
+    viewer.forceRenderNextFrame();
+  }
+
+  function gotoStage(index) {
+    current = Math.min(Math.max(index, 0), stages.length - 1);
+    preview = false;
+    showStage(current);
+    const frame = frames.get(stages[current].name);
+    if (frame) {
+      viewer.camera.position.fromArray(frame.position);
+      if (viewer.controls) viewer.controls.target.fromArray(frame.target);
+      viewer.camera.lookAt(new THREE.Vector3().fromArray(frame.target));
+    }
+    render();
+  }
+
+  function setKeyframe() {
+    const target = viewer.controls
+      ? viewer.controls.target.clone() : new THREE.Vector3();
+    frames.set(stages[current].name, {
+      stage: stages[current].name,
+      position: viewer.camera.position.toArray().map(n => +n.toFixed(4)),
+      target: target.toArray().map(n => +n.toFixed(4)),
+    });
+    rebuild();
+    render();
+  }
+
+  function clearKeyframe() {
+    frames.delete(stages[current].name);
+    rebuild();
+    render();
+  }
+
+  function rebuild() {
+    setPath(makeCameraPath([...frames.values()], stages));
+  }
+
+  function togglePreview() {
+    preview = !preview;
+    slider.disabled = !preview;
+    if (preview) {
+      applyMix();                       // hands the view to the interpolated path
+    } else {
+      gotoStage(current);
+    }
+    render();
+  }
+
+  function exportJson() {
+    const ordered = stages
+      .map(s => frames.get(s.name))
+      .filter(Boolean);
+    const text = JSON.stringify({ keyframes: ordered }, null, 2);
+    out.value = text;
+    out.style.display = "block";
+    navigator.clipboard?.writeText(text).catch(() => {});
+    const blob = new Blob([text], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "camera.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function render() {
+    const count = frames.size;
+    bar.innerHTML = `
+      <span class="step">camera &mdash; ${count}/${stages.length} keyed</span>
+      ${stages.map((s, i) => `<button id="cam-s${i}" class="${!preview && i === current ? "active" : ""}">${
+        frames.has(s.name) ? "●" : "○"} ${s.name}</button>`).join("")}
+      <span class="hint">drag to orbit &middot; &larr; &rarr; stages</span>
+      <span class="spacer"></span>
+      <button id="cam-set" class="primary" ${preview ? "disabled" : ""}>set keyframe here</button>
+      <button id="cam-clear" ${!preview && frames.has(stages[current].name) ? "" : "disabled"}>clear</button>
+      <button id="cam-preview" class="${preview ? "active" : ""}" ${count > 1 ? "" : "disabled"}>preview</button>
+      <button id="cam-export" ${count ? "" : "disabled"}>export camera.json</button>`;
+    stages.forEach((_, i) => {
+      bar.querySelector(`#cam-s${i}`).onclick = () => gotoStage(i);
+    });
+    bar.querySelector("#cam-set").onclick = setKeyframe;
+    bar.querySelector("#cam-clear").onclick = clearKeyframe;
+    bar.querySelector("#cam-preview").onclick = togglePreview;
+    bar.querySelector("#cam-export").onclick = exportJson;
+  }
+
+  window.addEventListener("keydown", e => {
+    if (e.target.tagName === "TEXTAREA" || preview) return;
+    if (e.key === "ArrowLeft") gotoStage(current - 1);
+    if (e.key === "ArrowRight") gotoStage(current + 1);
+  });
+
+  statusEl.style.display = "none";
+  slider.disabled = true;
+  gotoStage(0);
+}
+
+// ---------------------------------------------------------------------------
+// Manual alignment tool (?align=1)
+//
+// Click matching features on two stages and snap one onto the other. Two points
+// fix translation, uniform scale, and the direction between them; the remaining
+// roll about that axis is resolved as the smallest rotation, which keeps the
+// existing ICP fit rather than inventing a twist. Three or more points pin the
+// roll down too.
+// ---------------------------------------------------------------------------
+
+function similarityFromPairs(srcPts, dstPts) {
+  const n = srcPts.length;
+  const srcC = srcPts.reduce((a, p) => a.add(p.clone()), new THREE.Vector3()).divideScalar(n);
+  const dstC = dstPts.reduce((a, p) => a.add(p.clone()), new THREE.Vector3()).divideScalar(n);
+  const src = srcPts.map(p => p.clone().sub(srcC));
+  const dst = dstPts.map(p => p.clone().sub(dstC));
+
+  const srcSq = src.reduce((a, p) => a + p.lengthSq(), 0);
+  const dstSq = dst.reduce((a, p) => a + p.lengthSq(), 0);
+  const scale = Math.sqrt(dstSq / Math.max(srcSq, 1e-12));
+
+  let q;
+  if (n === 2) {
+    q = new THREE.Quaternion().setFromUnitVectors(
+      src[1].clone().sub(src[0]).normalize(),
+      dst[1].clone().sub(dst[0]).normalize());
+  } else {
+    // Iteratively rotate to cancel the net torque between the two point sets.
+    q = new THREE.Quaternion();
+    for (let iter = 0; iter < 60; iter++) {
+      const torque = new THREE.Vector3();
+      let denom = 0;
+      for (let i = 0; i < n; i++) {
+        const r = src[i].clone().applyQuaternion(q);
+        torque.add(new THREE.Vector3().crossVectors(r, dst[i]));
+        denom += r.dot(dst[i]);
+      }
+      if (denom <= 1e-9) denom = 1e-9;
+      const axis = torque.clone().divideScalar(denom);
+      const angle = axis.length();
+      if (angle < 1e-9) break;
+      q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis.normalize(), Math.atan(angle)));
+      q.normalize();
+    }
+  }
+
+  const m = new THREE.Matrix4().compose(
+    new THREE.Vector3(), q, new THREE.Vector3(scale, scale, scale));
+  m.setPosition(dstC.clone().sub(srcC.clone().applyQuaternion(q).multiplyScalar(scale)));
+  return m;
+}
+
+function setupAlignTool(viewer, align) {
+  const mesh = viewer.splatMesh;
+  const stages = align.stages;
+  const overlays = align.overlays || [];
+  const entries = [...stages, ...overlays];
+  const canvas = viewer.renderer.domElement;
+  const wcInv = new THREE.Quaternion(...WORLD_CORRECTION).invert();
+
+  // Hit the actual splat ellipsoid rather than its bounding sphere, so a click
+  // lands on the feature rather than near it.
+  viewer.raycaster.raycastAgainstTrueSplatEllipsoid = true;
+
+  // Damped controls keep gliding after the mouse is released, which makes it
+  // impossible to click a specific spot. Stop dead instead.
+  if (viewer.controls) {
+    viewer.controls.enableDamping = false;
+    viewer.controls.dampingFactor = 0;
+  }
+
+  // The viewer's own click handler flies the camera to whatever you click,
+  // which would fight every pick. Picking replaces it in this mode.
+  if (viewer.mouseUpListener) {
+    canvas.removeEventListener("pointerup", viewer.mouseUpListener);
+  }
+
+  // A gaussian surface has no single solid splat to hit: it is many
+  // translucent ones stacked up. Walk the ray front to back accumulating
+  // opacity exactly as the renderer does, and take the depth where the surface
+  // becomes opaque. Picking the first individually-dense splat instead lands
+  // well inside the pumpkin, and misses entirely where the surface is built
+  // only from faint splats.
+  const SURFACE_OPACITY = 0.5;
+  const IGNORE_ALPHA = 0.03;   // dust that contributes nothing
+
+  // Scoping to one stage gives a single pair, so a late addition can be slotted
+  // into an alignment that is already settled without disturbing any of it.
+  const scopedIndex = ALIGN_STAGE ? stages.findIndex(s => s.name === ALIGN_STAGE) : -1;
+  const scoped = scopedIndex > 0;
+  const pairList = scoped
+    ? [{ anchor: scopedIndex - 1, mover: scopedIndex }]
+    : stages.slice(0, -1).map((_, i) => ({ anchor: i, mover: i + 1 }));
+  if (ALIGN_STAGE && !scoped) console.warn(`align: no stage "${ALIGN_STAGE}"`);
+  const pairCount = pairList.length;
+
+  // Per-pair state is kept so pairs can be revisited, their points checked, and
+  // the fit redone without starting over.
+  const pairs = pairList.map(() => ({
+    picks: [[null, null], [null, null]],
+    before: null,            // mover's matrix before apply, for redo
+    applied: false,
+  }));
+
+  let pair = 0;
+  let side = 0;                       // which of the pair's two models is shown
+  let slot = 0;                       // which point a click sets
+  let mode = "pick";                  // or "review"
+  let view = "flip";                  // review: "flip" | "blend"
+  let blinkTimer = null;
+  let note = "";
+
+  const anchorIndex = () => pairList[pair].anchor;
+  const moverIndex = () => pairList[pair].mover;
+  const state = () => pairs[pair];
+  const bothSet = s => state().picks[s][0] && state().picks[s][1];
+  const allSet = () => bothSet(0) && bothSet(1);
+
+  // The viewer draws threeScene first and then paints the splat mesh over it,
+  // so markers added there are hidden. Give them their own pass afterwards.
+  const markerScene = new THREE.Scene();
+  const baseRender = viewer.render.bind(viewer);
+  viewer.render = () => {
+    baseRender();
+    if (!markerScene.children.length) return;
+    const saved = viewer.renderer.autoClear;
+    viewer.renderer.autoClear = false;
+    viewer.renderer.render(markerScene, viewer.camera);
+    viewer.renderer.autoClear = saved;
+  };
+
+  const ringTexture = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d");
+    g.strokeStyle = "#fff";
+    g.lineWidth = 5;
+    g.beginPath();
+    g.arc(32, 32, 20, 0, Math.PI * 2);
+    g.stroke();
+    g.fillStyle = "#fff";
+    g.beginPath();
+    g.arc(32, 32, 2.5, 0, Math.PI * 2);
+    g.fill();
+    return new THREE.CanvasTexture(c);
+  })();
+
+  function makeRing(colour, size, order) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0], 3));
+    const m = new THREE.Points(geometry, new THREE.PointsMaterial({
+      size, sizeAttenuation: false, map: ringTexture,
+      transparent: true, depthTest: false, depthWrite: false, color: colour,
+    }));
+    m.renderOrder = order;
+    markerScene.add(m);
+    return m;
+  }
+
+  // Both models' points stay on screen at once, so flipping between them shows
+  // immediately whether the same feature was picked on each.
+  const markers = [[makeRing(0x5bff9b, 18, 999), makeRing(0x5bff9b, 18, 999)],
+                   [makeRing(0xff6a4d, 18, 999), makeRing(0xff6a4d, 18, 999)]];
+  const hoverMarker = makeRing(0xffffff, 14, 998);
+  hoverMarker.visible = false;
+
+  function syncMarkers() {
+    markers.forEach((row, s) => row.forEach((m, k) => {
+      const p = state().picks[s][k];
+      m.visible = !!p;
+      if (p) m.position.copy(p);
+    }));
+  }
+
+  const bar = document.createElement("div");
+  bar.id = "align-bar";
+  document.body.appendChild(bar);
+
+  const style = document.createElement("style");
+  style.textContent = `
+    #align-bar { position:absolute; top:0; left:0; right:0; z-index:30;
+      background:rgba(12,12,14,0.93); color:#f2f2f2; font-size:14px;
+      padding:10px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    #align-bar .step { opacity:0.6; font-size:12px; letter-spacing:0.08em;
+      text-transform:uppercase; white-space:nowrap; }
+    #align-bar .note { color:#ff9c8a; font-size:13px; }
+    #align-bar .ok { color:#8fe6a8; font-size:13px; }
+    #align-bar .hint { opacity:0.5; font-size:12px; }
+    #align-bar .spacer { flex:1; }
+    #align-bar button { font:inherit; font-size:13px; background:#2b2b31; color:#eee;
+      border:1px solid #45454d; border-radius:4px; padding:6px 11px; cursor:pointer; }
+    #align-bar button:hover:not(:disabled) { background:#3a3a42; }
+    #align-bar button:disabled { opacity:0.35; cursor:default; }
+    #align-bar button.active { background:#2f6fd0; border-color:#6ba0ee; }
+    #align-bar button.primary { background:#2f6fd0; border-color:#3f80e0; }
+    #align-bar button.warn { background:#6d3326; border-color:#9c4a36; }
+    #align-out { position:absolute; top:48px; left:0; right:0; z-index:30; height:150px;
+      background:#000; color:#b6e3b6; border:0; border-top:1px solid #333; display:none;
+      font-family:ui-monospace,Consolas,monospace; font-size:10px; padding:8px; }
+  `;
+  document.head.appendChild(style);
+
+  const out = document.createElement("textarea");
+  out.id = "align-out";
+  out.readOnly = true;
+  document.body.appendChild(out);
+
+  function render() {
+    const a = entries[anchorIndex()].name;
+    const b = entries[moverIndex()].name;
+    const dot = (s, k) => state().picks[s][k] ? "●" : "○";
+    const doneCount = pairs.filter(p => p.applied).length;
+
+    if (mode === "review") {
+      bar.innerHTML = `
+        <span class="step">pair ${pair + 1} / ${pairCount} &mdash; applied</span>
+        <button id="al-a" class="${view === "flip" && side === 0 ? "active" : ""}">${a}</button>
+        <button id="al-b" class="${view === "flip" && side === 1 ? "active" : ""}">${b}</button>
+        <button id="al-blend" class="${view === "blend" ? "active" : ""}">blend</button>
+        <button id="al-blink" class="${blinkTimer ? "active" : ""}">auto-blink</button>
+        <span class="hint">space = flip</span>
+        <span class="spacer"></span>
+        <button id="al-redo" class="warn">redo this pair</button>
+        ${pair < pairCount - 1
+          ? `<button id="al-next" class="primary">looks good &rarr;</button>
+             <button id="al-export">export</button>`
+          : `<button id="al-export" class="primary">looks good &mdash; export align.json</button>`}`;
+      bar.querySelector("#al-a").onclick = () => { view = "flip"; side = 0; stopBlink(); refresh(); };
+      bar.querySelector("#al-b").onclick = () => { view = "flip"; side = 1; stopBlink(); refresh(); };
+      bar.querySelector("#al-blend").onclick = () => { view = "blend"; stopBlink(); refresh(); };
+      bar.querySelector("#al-blink").onclick = toggleBlink;
+      bar.querySelector("#al-redo").onclick = redoPair;
+      const next = bar.querySelector("#al-next");
+      if (next) next.onclick = () => gotoPair(pair + 1);
+      bar.querySelector("#al-export").onclick = exportJson;
+      return;
+    }
+
+    bar.innerHTML = `
+      <span class="step">pair ${pair + 1} / ${pairCount}</span>
+      <button id="al-a" class="${side === 0 ? "active" : ""}">${a} ${dot(0, 0)}${dot(0, 1)}</button>
+      <button id="al-b" class="${side === 1 ? "active" : ""}">${b} ${dot(1, 0)}${dot(1, 1)}</button>
+      <span class="hint">space = flip</span>
+      <button id="al-p1" class="${slot === 0 ? "active" : ""}">${dot(side, 0)} point 1</button>
+      <button id="al-p2" class="${slot === 1 ? "active" : ""}">${dot(side, 1)} point 2</button>
+      ${note ? `<span class="note">${note}</span>` : ""}
+      ${state().applied ? `<span class="ok">applied</span>` : ""}
+      <span class="spacer"></span>
+      <button id="al-apply" class="primary" ${allSet() ? "" : "disabled"}>apply &amp; check</button>
+      <button id="al-prev" ${pair > 0 ? "" : "disabled"}>&larr;</button>
+      <button id="al-nextpair" ${pair < pairCount - 1 ? "" : "disabled"}>&rarr;</button>
+      <button id="al-clear">clear points</button>
+      <button id="al-export">export${doneCount ? ` (${doneCount}/${pairCount})` : ""}</button>`;
+    bar.querySelector("#al-a").onclick = () => { side = 0; note = ""; refresh(); };
+    bar.querySelector("#al-b").onclick = () => { side = 1; note = ""; refresh(); };
+    bar.querySelector("#al-p1").onclick = () => { slot = 0; note = ""; render(); };
+    bar.querySelector("#al-p2").onclick = () => { slot = 1; note = ""; render(); };
+    bar.querySelector("#al-apply").onclick = applyPair;
+    bar.querySelector("#al-prev").onclick = () => gotoPair(pair - 1);
+    bar.querySelector("#al-nextpair").onclick = () => gotoPair(pair + 1);
+    bar.querySelector("#al-clear").onclick = clearPoints;
+    bar.querySelector("#al-export").onclick = exportJson;
+  }
+
+  function showScenes(opacities) {
+    entries.forEach((_, i) => {
+      const scene = mesh.getScene(i);
+      const o = opacities[i] || 0;
+      scene.opacity = o;
+      scene.visible = o > 0;
+    });
+    viewer.forceRenderNextFrame();
+  }
+
+  function refresh() {
+    const opacities = {};
+    if (mode === "review" && view === "blend") {
+      opacities[anchorIndex()] = 0.5;
+      opacities[moverIndex()] = 0.5;
+    } else {
+      opacities[side === 0 ? anchorIndex() : moverIndex()] = 1;
+    }
+    showScenes(opacities);
+    syncMarkers();
+    render();
+  }
+
+  function gotoPair(next) {
+    if (next < 0 || next >= pairCount) return;
+    stopBlink();
+    pair = next;
+    side = 0;
+    slot = 0;
+    note = "";
+    mode = pairs[pair].applied ? "review" : "pick";
+    refresh();
+  }
+
+  function flip() {
+    side = side === 0 ? 1 : 0;
+    if (mode === "review") view = "flip";
+    refresh();
+  }
+
+  function toggleBlink() {
+    if (blinkTimer) { stopBlink(); refresh(); return; }
+    view = "flip";
+    blinkTimer = setInterval(() => { side = side === 0 ? 1 : 0; refresh(); }, 600);
+    refresh();
+  }
+  function stopBlink() {
+    if (blinkTimer) { clearInterval(blinkTimer); blinkTimer = null; }
+  }
+
+  const pickColour = new THREE.Vector4();
+
+  function surfacePoint(clientX, clientY) {
+    const target = side === 0 ? anchorIndex() : moverIndex();
+    const rect = canvas.getBoundingClientRect();
+    viewer.raycaster.setFromCameraAndScreenPosition(
+      viewer.camera,
+      new THREE.Vector2(clientX - rect.left, clientY - rect.top),
+      new THREE.Vector2(rect.width, rect.height));
+    const hits = [];
+    viewer.raycaster.intersectSplatMesh(mesh, hits);
+
+    const candidates = hits
+      // Ellipsoid intersection yields NaN on degenerate splats.
+      .filter(h => mesh.getSceneIndexForSplat(h.splatIndex) === target &&
+                   Number.isFinite(h.origin.x) &&
+                   Number.isFinite(h.origin.y) &&
+                   Number.isFinite(h.origin.z))
+      .sort((a, b) => a.distance - b.distance);
+
+    let transmittance = 1;
+    for (const h of candidates) {
+      mesh.getSplatColor(h.splatIndex, pickColour);
+      const alpha = pickColour.w / 255;
+      if (alpha < IGNORE_ALPHA) continue;
+      transmittance *= (1 - alpha);
+      if (1 - transmittance >= SURFACE_OPACITY) return h.origin.clone();
+    }
+    return null;
+  }
+
+  // Clicking always replaces the active point, so a spot can be retried as many
+  // times as it takes to land where you want it.
+  function pick(event) {
+    if (mode !== "pick") return;
+    const point = surfacePoint(event.clientX, event.clientY);
+    if (!point) {
+      note = "no surface there — try again";
+      render();
+      return;
+    }
+    note = "";
+    state().picks[side][slot] = point;
+    syncMarkers();
+    render();
+    viewer.forceRenderNextFrame();
+  }
+
+  // Treat a click as a pick only if the pointer barely moved, so dragging still orbits.
+  let downAt = null;
+  canvas.addEventListener("pointerdown", e => { downAt = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener("pointerup", e => {
+    if (!downAt) return;
+    const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
+    downAt = null;
+    if (moved <= 4) pick(e);
+  });
+
+  // Live cursor on the surface under the mouse, so the landing spot is visible
+  // before committing to it.
+  let hoverPending = null;
+  canvas.addEventListener("pointermove", e => { hoverPending = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener("pointerleave", () => { hoverPending = null; hoverMarker.visible = false; });
+  (function trackHover() {
+    requestAnimationFrame(trackHover);
+    if (!hoverPending) return;
+    const { x, y } = hoverPending;
+    hoverPending = null;
+    if (mode !== "pick") { hoverMarker.visible = false; return; }
+    const point = surfacePoint(x, y);
+    hoverMarker.visible = !!point;
+    if (point) hoverMarker.position.copy(point);
+    viewer.forceRenderNextFrame();
+  })();
+
+  window.addEventListener("keydown", e => {
+    if (e.target.tagName === "TEXTAREA") return;
+    if (e.code === "Space") { e.preventDefault(); flip(); return; }
+    if (e.key === "1") { slot = 0; render(); }
+    if (e.key === "2") { slot = 1; render(); }
+    if (e.key === "ArrowLeft") gotoPair(pair - 1);
+    if (e.key === "ArrowRight") gotoPair(pair + 1);
+  });
+
+  function clearPoints() {
+    state().picks = [[null, null], [null, null]];
+    slot = 0;
+    note = "";
+    refresh();
+  }
+
+  function applyPair() {
+    if (!allSet()) return;
+    const scene = mesh.getScene(moverIndex());
+    scene.updateMatrix();
+    // Re-applying a pair starts from the matrix it had before the first apply,
+    // so going back and adjusting points does not stack corrections.
+    if (!state().before) state().before = scene.matrix.clone();
+
+    const meshWorld = mesh.matrixWorld.clone();
+    const C = similarityFromPairs(state().picks[1], state().picks[0]);
+    const Clocal = meshWorld.clone().invert().multiply(C).multiply(meshWorld);
+    const M = state().before.clone().premultiply(Clocal);
+    M.decompose(scene.position, scene.quaternion, scene.scale);
+
+    state().applied = true;
+    mode = "review";
+    view = "flip";
+    side = 0;
+    refresh();
+  }
+
+  function redoPair() {
+    const st = state();
+    if (st.before) {
+      const scene = mesh.getScene(moverIndex());
+      st.before.decompose(scene.position, scene.quaternion, scene.scale);
+    }
+    st.applied = false;
+    stopBlink();
+    mode = "pick";
+    side = 0;
+    slot = 0;
+    refresh();
+  }
+
+  // Local centroid per scene, so the assembly can be put back where it started
+  // after snapping has chained every stage onto the first one.
+  const localCentroids = entries.map((_, s) => {
+    const c = new THREE.Vector3();
+    const tmp = new THREE.Vector3();
+    let count = 0;
+    for (let i = 0; i < mesh.getSplatCount(); i += 37) {
+      if (mesh.getSceneIndexForSplat(i) !== s) continue;
+      mesh.getSplatCenter(i, tmp, false);
+      c.add(tmp);
+      count++;
+    }
+    return count ? c.divideScalar(count) : c;
+  });
+  const worldCentroid = s => {
+    const scene = mesh.getScene(s);
+    scene.updateMatrix();
+    return localCentroids[s].clone().applyMatrix4(scene.matrix);
+  };
+  const initialCentroids = entries.map((_, s) => worldCentroid(s));
+
+  // Chaining each stage onto the one before it drags the whole assembly off
+  // frame; shift it all back. Idempotent, so exporting twice is harmless.
+  function recentre() {
+    const drift = new THREE.Vector3();
+    entries.forEach((_, s) => drift.add(worldCentroid(s).sub(initialCentroids[s])));
+    drift.divideScalar(entries.length);
+    entries.forEach((_, s) => mesh.getScene(s).position.sub(drift));
+  }
+
+  // Emits a complete align.json so it can be saved straight over the old one.
+  function exportJson() {
+    // Recentring shifts every stage. When scoped to one, the rest are already
+    // settled and must not move, so only the new stage's numbers change.
+    if (!scoped) recentre();
+    const result = JSON.parse(JSON.stringify(align));
+    const updated = [...result.stages, ...(result.overlays || [])];
+    entries.forEach((entry, s) => {
+      const scene = mesh.getScene(s);
+      scene.updateMatrix();
+      const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+      scene.matrix.decompose(pos, quat, scl);
+      // Undo the fixed world correction the viewer re-applies on load.
+      pos.applyQuaternion(wcInv);
+      quat.premultiply(wcInv);
+      const target = updated.find(u => u.name === entry.name);
+      target.position = pos.toArray().map(n => +n.toFixed(6));
+      target.rotation = [quat.x, quat.y, quat.z, quat.w].map(n => +n.toFixed(8));
+      target.scale = scl.toArray().map(n => +n.toFixed(6));
+    });
+    const text = JSON.stringify(result, null, 2);
+    out.value = text;
+    out.style.display = "block";
+    navigator.clipboard?.writeText(text).catch(() => {});
+    const blob = new Blob([text], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "align.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    refresh();
+  }
+
+  slider.disabled = true;
+  statusEl.style.display = "none";
+  refresh();
+}
+
+main().catch(err => {
+  console.error(err);
+  loadingEl.textContent = "Error: " + err.message;
+});
+</script>
+</body>
+</html>
