@@ -119,12 +119,11 @@ const ALIGN_STAGE = ["", "1", "true"].includes(PARAMS.get("align") || "")
 // ?camera=1 opens the keyframe tool for the camera move.
 const CAMERA_MODE = PARAMS.has("camera");
 
-// Where the .ksplat files are served from. These are tens of megabytes, so
-// they live in their own repo rather than next to this page. jsDelivr fronts
-// GitHub with a real CDN and sends Access-Control-Allow-Origin, so the viewer
-// can be hosted anywhere; its 20MB per-file ceiling is why the scans are
-// written at compression level 2. Set this to "" to load from this folder.
-const MODEL_BASE = "https://cdn.jsdelivr.net/gh/captainquinns/PumpkinScan@main/";
+// Where the .ksplat files are served from. Empty means alongside this page,
+// which is how it is published: the viewer and the scans share one GitHub Pages
+// site, so this is same-origin with no CDN in the way. jsDelivr was the
+// intended CDN but caps a whole package at 50MB and these scans total 61MB.
+const MODEL_BASE = "";
 
 // How many slider steps are allotted to each adjacent pair of stages.
 const STEPS_PER_SEGMENT = 1000;
