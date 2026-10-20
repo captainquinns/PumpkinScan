@@ -312,6 +312,18 @@ async function main() {
   viewer.start();
   window.__viewer = viewer;
 
+  // The viewer's own ResizeObserver resizes the canvas but never updates the
+  // camera's aspect, which is fixed at startup -- so the picture stays locked
+  // to whatever shape the frame first had. Keep the projection in step.
+  const container = document.getElementById("viewer-container");
+  new ResizeObserver(() => {
+    const w = container.offsetWidth, h = container.offsetHeight;
+    if (!w || !h || !viewer.camera.isPerspectiveCamera) return;
+    viewer.camera.aspect = w / h;
+    viewer.camera.updateProjectionMatrix();
+    viewer.forceRenderNextFrame();
+  }).observe(container);
+
   // Slider spans [0, (stages.length - 1) * STEPS_PER_SEGMENT], one segment per
   // adjacent stage pair, crossfading opacity between the two stages that
   // straddle the current position.
